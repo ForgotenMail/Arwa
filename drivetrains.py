@@ -1,3 +1,4 @@
+from poplib import POP3_PORT
 from venice import Direction, Gearset, Motor
 
 """This file is where you will define your drivetrain
@@ -13,6 +14,17 @@ DriveTrainType = "Null"
 """Type how many motors you have in these lists, it goes from front to back! """
 LeftMotors: list = [0, 0]
 RightMotors: list = [0, 0]
+
+
+"""Put this into a fraction, all you have to do is motors RPM * InputGear/Output gear"""
+GearRatio = 450
+
+
+# Put this into Iches
+WheelDiamater = 4
+
+#Put your IMU port in
+Gyro = InertialSensor(5)
 
 # The way we define drivetrains is that each type of drivetrain is a class
 # At the end, we declare our variable called "drivetrain" to be one of these classes
@@ -37,10 +49,27 @@ class TankDrivetrain:
         # These for loops just say for each motor on each side, move the motor however fast forward
         # and how fast you want to turn. This means regardless of our drivetrain type,
         #  we can call the same function!
+        #
+        right_norm = 0
+        left_norm = 0
+
+        if velocity + turn > 12 or velocity + turn < -12:
+            right_Norm = velocity + turn - 12
+        elif velocity - turn > 12 or velocity - turn < -12
+            left_norm = velocity - turn -12
+
         for m in self.left_motors:
-            m.set_voltage(velocity + turn)
+            m.set_voltage(velocity + turn - left_Norm)
         for m in self.right_motors:
-            m.set_voltage(velocity - turn)
+            m.set_voltage(velocity - turn - right_Norm)
+
+    def MotorPosition(self):
+        Amt_Motors = 0
+        Total = 0
+        for m in self.left_motors + self.right_motors:
+            Amt_Motors += 1
+            Total += m.raw_position()
+        return Total / Amt_Motors
 
 
 class HolomonicDrive:
@@ -51,10 +80,19 @@ class HolomonicDrive:
         self.RightBack = create_motor(right_ports[1])
 
     def drive_tank(self, Forward, Rotate):
-        FL = max(-12, min(12, Forward + Rotate))
-        FR = max(-12, min(12, Forward - Rotate))
-        BL = max(-12, min(12, Forward + Rotate))
-        BR = max(-12, min(12, Forward - Rotate))
+
+        right_norm = 0
+        left_norm = 0
+
+        if Forward + Rotate > 12 or Forward + Rotate < -12:
+            right_Norm = Forward + Rotate - 12
+        elif Forward - Rotate > 12 or Forward - Rotate < -12
+            left_norm = Forward - Rotate -12
+
+        FL = max(-12, min(12, Forward + Rotate - left_norm))
+        FR = max(-12, min(12, Forward - Rotate - right_norm))
+        BL = max(-12, min(12, Forward + Rotate - left_norm))
+        BR = max(-12, min(12, Forward - Rotate - right_norm))
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -71,6 +109,15 @@ class HolomonicDrive:
         self.RightFront.set_voltage(FR)
         self.LeftBack.set_voltage(BL)
         self.RightBack.set_voltage(BR)
+
+    def MotorPosition(self):
+        Total = 0
+        Total += self.LeftFront.raw_position()
+        Total += self.RightFront.raw_position()
+        Total += self.RightBack.raw_position()
+        Total += self.LeftBack.raw_position()
+
+        return Total / 4
 
 
 class HolomonicDrive6:
@@ -83,12 +130,23 @@ class HolomonicDrive6:
         self.RightBack = create_motor(right_ports[2])
 
     def drive_tank(self, Forward, Rotate):
-        FL = max(-12, min(12, Forward + Rotate))
-        FR = max(-12, min(12, Forward - Rotate))
-        ML = max(-12, min(12, Forward + Rotate))
-        MR = max(-12, min(12, Forward - Rotate))
-        BL = max(-12, min(12, Forward + Rotate))
-        BR = max(-12, min(12, Forward - Rotate))
+
+        right_norm = 0
+        left_norm = 0
+
+        if Forward + Rotate > 12 or Forward + Rotate < -12:
+            right_Norm = Forward + Rotate - 12
+        elif Forward - Rotate > 12 or Forward - Rotate < -12
+            left_norm = Forward - Rotate -12
+
+
+
+        FL = max(-12, min(12, Forward + Rotate - left_norm))
+        FR = max(-12, min(12, Forward - Rotate - right_norm))
+        ML = max(-12, min(12, Forward + Rotate - left_norm))
+        MR = max(-12, min(12, Forward - Rotate - right_norm))
+        BL = max(-12, min(12, Forward + Rotate - left_norm))
+        BR = max(-12, min(12, Forward - Rotate - right_norm))
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -112,12 +170,23 @@ class HolomonicDrive6:
         self.LeftBack.set_voltage(BL)
         self.RightBack.set_voltage(BR)
 
+    def MotorPosition(self):
+        Total = 0
+        Total += self.LeftFront.raw_position()
+        Total += self.RightFront.raw_position()
+        Total += self.RightMiddle.raw_position()
+        Total += self.LeftMiddle.raw_position()
+        Total += self.RightBack.raw_position()
+        Total += self.LeftBack.raw_position()
+
+        return Total / 6
+
 
 if DriveTrainType == "tank":
-    drivetrain = TankDrivetrain(LeftMotors, RightMotors)
+    drive = TankDrivetrain(LeftMotors, RightMotors)
 elif DriveTrainType == "holomonic":
-    drivetrain = HolomonicDrive(LeftMotors, RightMotors)
+    drive = HolomonicDrive(LeftMotors, RightMotors)
 elif DriveTrainType == "holomonic6":
-    drivetrain = HolomonicDrive6(LeftMotors, RightMotors)
+    drive = HolomonicDrive6(LeftMotors, RightMotors)
 else:
     print("ded")
