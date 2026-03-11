@@ -1,5 +1,7 @@
 from venice import Direction, Gearset, Motor, RotationSensor, RotationUnit
 from Classes import Point, factorial, sin_deg, cos_deg, deg_to_rad
+
+
 """This file is where you will define your drivetrain
 The variable DriveTrainType is what defines what dirve train you have, the current drivetrains that are
 supported are these (Name followed for the variable in paranthesis)
@@ -70,7 +72,7 @@ class TankDrivetrain:
 
         if velocity + turn > 12 or velocity + turn < -12:
             right_Norm = velocity + turn - 12
-        elif velocity - turn > 12 or velocity - turn < -12
+        elif velocity - turn > 12 or velocity - turn < -12:
             left_norm = velocity - turn -12
 
         right_norm = 0
@@ -104,7 +106,7 @@ class HolomonicDrive:
 
         if Forward + Rotate > 12 or Forward + Rotate < -12:
             right_Norm = Forward + Rotate - 12
-        elif Forward - Rotate > 12 or Forward - Rotate < -12
+        elif Forward - Rotate > 12 or Forward - Rotate < -12:
             left_norm = Forward - Rotate -12
 
         FL = max(-12, min(12, Forward + Rotate - left_norm))
@@ -119,8 +121,6 @@ class HolomonicDrive:
 
     def drive_holomonic(self, Forward, Lateral, Rotate):
         FL = max(-12, min(12, Forward + Lateral + Rotate))
-        FR = max(-12, min(12, Forward - Lateral - Rotate))
-        BL = max(-12, min(12, Forward - Lateral + Rotate))
         BR = max(-12, min(12, Forward + Lateral - Rotate))
 
         self.LeftFront.set_voltage(FL)
@@ -154,7 +154,7 @@ class HolomonicDrive6:
 
         if Forward + Rotate > 12 or Forward + Rotate < -12:
             right_Norm = Forward + Rotate - 12
-        elif Forward - Rotate > 12 or Forward - Rotate < -12
+        elif Forward - Rotate > 12 or Forward - Rotate < -12:
             left_norm = Forward - Rotate -12
 
 
@@ -199,7 +199,6 @@ class HolomonicDrive6:
 
         return Total / 6
 
-
 class TrackingNoOdom:
     def __init__(self, Gyro, drive, GearRatio, WheelDiameter):
         self.gyro = Gyro
@@ -208,57 +207,106 @@ class TrackingNoOdom:
         self.GearRatio = GearRatio
         self.WheelDiameter = WheelDiameter
 
-    #This function continously updates the position of the robot
+        # Store previous motor position to calculate delta
+        self.prev_motor = self.drive.MotorPosition
+
+    # This function continuously updates the position of the robot
     # Each loop it takes the information from the motors and updates the positions
     def updatePose(self):
-        DistanceMoved = 0
         while True:
+            # Read current motor rotation
+            curr_motor = self.drive.MotorPosition
 
-            #Taking the Raw amount of rotations the motor has done and turning that into distance travled
-            RawMotor = self.drive.MotorPosition
-            Wheel_rotations = (RawMotor/4096)*self.GearRatio
+            # Calculate change since last update
+            delta_motor = curr_motor - self.prev_motor
+            Wheel_rotations = (delta_motor / 4096) * self.GearRatio
             DistanceMoved = Wheel_rotations * 3.14159 * self.WheelDiameter
 
-            #These lines make it so that no mater what heading the robot is at, the robot knows where it is at
+            # Update global position using current heading
+            heading = self.gyro.get_heading
+            self.pos.increase_x(DistanceMoved * cos_deg(heading))
+            self.pos.increase_y(DistanceMoved * sin_deg(heading))
 
-            self.pos.increase_x(DistanceMoved * cos_deg(self.gyro.get_heading))
-            self.pos.increase_y(DistanceMoved * sin_deg(self.gyro.get_heading))
+            # Save current motor position for next loop
+            self.prev_motor = curr_motor
 
     def get_pos(self):
         return self.pos
 
 
-
-
-
-
 class Tracking1Odom:
-    def __init__(self, Gyro, drive, OdomDiameter, OdomPorts):
+    def __init__(self, Gyro, OdomDiameter, OdomPorts):
         self.gyro = Gyro
-        self.drive = drive
         self.pos = Point(0, 0)
         self.OdomDiameter = OdomDiameter
         self.OdomPod1 = create_rotation(OdomPorts)
 
-    #This function continously updates the position of the robot
-    # Each loop it takes the information from the motors and updates the positions
+        # Store previous pod position to calculate delta
+        self.prev_odom = self.OdomPod1.position(DEGREES)
+
+    # This function continuously updates the position of the robot
+    # Each loop it takes the information from the odom pod and updates the positions
     def updatePose(self):
-        DistanceMoved = 0
         while True:
+            # Read current odom pod rotation
+            curr_odom = self.OdomPod1.position(DEGREES)
 
-            #Taking the Raw amount of rotations the motor has done and turning that into distance travled
-            RawRotations = self.OdomPod1.position(DEGREES)
+            # Calculate change since last update
+            delta_rot = curr_odom - self.prev_odom
+            DistanceMoved = delta_rot * self.OdomDiameter * 3.14159 / 360  # convert degrees to revolutions
 
-            #These lines make it so that no mater what heading the robot is at, the robot knows where it is at
+            # Update global position using current heading
+            heading = self.gyro.get_heading
+            self.pos.increase_x(DistanceMoved * cos_deg(heading))
+            self.pos.increase_y(DistanceMoved * sin_deg(heading))
 
-            self.pos.increase_x(DistanceMoved * cos_deg(self.gyro.get_heading))
-            self.pos.increase_y(DistanceMoved * sin_deg(self.gyro.get_heading))
+            # Save current odom position for next loop
+            self.prev_odom = curr_odom
 
     def get_pos(self):
         return self.pos
 
 
-# Class Tracking2Odom
+
+class Tracking2Odom:
+    def __init__ (self, Gyro, OdomDiameter, OdomPorts):
+        self.gyro = Gyro
+        self.pos = Point(0, 0)
+        self.OdomDiameter = OdomDiameter
+
+        # Create the two odometry pods
+        self.OdomPodVertical = create_rotation(OdomPorts[0])
+        self.OdomPodHorizontal = create_rotation(OdomPorts[1])
+
+        # Store previous positions for delta calculation
+        self.prev_vert = self.OdomPodVertical.position(DEGREES)
+        self.prev_horiz = self.OdomPodHorizontal.position(DEGREES)
+
+    # This function continuously updates the position of the robot
+    # Each loop it takes the information from the odom pods and updates the positions
+    def updatePose(self):
+        while True:
+
+            # Read current odom pod rotations
+            curr_vert = self.OdomPodVertical.position(DEGREES)
+            curr_horiz = self.OdomPodHorizontal.position(DEGREES)
+
+            # Compute how much each pod moved since last update
+            delta_vert = (curr_vert - self.prev_vert) * self.OdomDiameter * 3.14159 / 360
+            delta_horiz = (curr_horiz - self.prev_horiz) * self.OdomDiameter * 3.14159 / 360
+
+            # Rotate local movement by current heading to get field coordinates
+            heading = self.gyro.get_heading
+            self.pos.increase_x(delta_horiz * cos_deg(heading) - delta_vert * sin_deg(heading))
+            self.pos.increase_y(delta_horiz * sin_deg(heading) + delta_vert * cos_deg(heading))
+
+            # Store current odom positions for next loop
+            self.prev_vert = curr_vert
+            self.prev_horiz = curr_horiz
+
+    def get_pos(self):
+        return self.pos
+
 
 
 if DriveTrainType == "tank":
@@ -267,5 +315,14 @@ elif DriveTrainType == "holomonic":
     drive = HolomonicDrive(LeftMotors, RightMotors)
 elif DriveTrainType == "holomonic6":
     drive = HolomonicDrive6(LeftMotors, RightMotors)
+else:
+    print("ded")
+
+if AmtOdom == 0:
+    Tracking = TrackingNoOdom
+elif AmtOdom == 1:
+    Tracking = Tracking1Odom
+elif AmtOdom == 2:
+    Tracking = Tracking2Odom
 else:
     print("ded")
