@@ -1,6 +1,5 @@
-from poplib import POP3_PORT
 from venice import Direction, Gearset, Motor
-
+from Classes import Point, factorial, sin_deg, cos_deg, deg_to_rad
 """This file is where you will define your drivetrain
 The variable DriveTrainType is what defines what dirve train you have, the current drivetrains that are
 supported are these (Name followed for the variable in paranthesis)
@@ -26,6 +25,18 @@ WheelDiamater = 4
 #Put your IMU port in
 Gyro = InertialSensor(5)
 
+#Odom, This Supports odometry, in this variable you have to specify the number of Odom pods you have. This code suports, 0, 1, and 2 Odom wheels.
+# If you are using 1 Odom pod it assumes that you are using a vertical odom wheel, 2 assumes 1 vertical and 1 lateral
+#   The code should be self explanitory so if you have something that is not made already, it should be easy for you to make your own
+#Even if you are not using Odometry in spesific, having Odom sensors still helps PID with acuracy
+AmtOdom = 0
+#Put your odom rotation ports in here, Vertical first, lateral 2nd
+OdomPorts = []
+
+#Put your wheel diamater for your Odom wheels in here in inches, if you are using a geared odom pod, just adjust the diamater
+OdomDiameter  = 5
+
+
 # The way we define drivetrains is that each type of drivetrain is a class
 # At the end, we declare our variable called "drivetrain" to be one of these classes
 #   That depends on what the user puts in
@@ -49,19 +60,19 @@ class TankDrivetrain:
         # These for loops just say for each motor on each side, move the motor however fast forward
         # and how fast you want to turn. This means regardless of our drivetrain type,
         #  we can call the same function!
-        #
-        right_norm = 0
-        left_norm = 0
 
         if velocity + turn > 12 or velocity + turn < -12:
             right_Norm = velocity + turn - 12
         elif velocity - turn > 12 or velocity - turn < -12
             left_norm = velocity - turn -12
 
+        right_norm = 0
+        left_norm = 0
+
         for m in self.left_motors:
-            m.set_voltage(velocity + turn - left_Norm)
+            m.set_voltage(velocity + turn - left_norm)
         for m in self.right_motors:
-            m.set_voltage(velocity - turn - right_Norm)
+            m.set_voltage(velocity - turn - right_norm)
 
     def MotorPosition(self):
         Amt_Motors = 0
@@ -180,6 +191,43 @@ class HolomonicDrive6:
         Total += self.LeftBack.raw_position()
 
         return Total / 6
+
+
+class TrackingNoOdom:
+    def __init__(self, Gyro, drive, GearRatio, WheelDiameter):
+        self.gyro = Gyro
+        self.drive = drive
+        self.pos = Point(0, 0)
+        self.GearRatio = GearRatio
+        self.WheelDiameter = WheelDiameter
+
+    #This function continously updates the position of the robot
+    # Each loop it takes the information from the motors and updates the positions
+    def updatePose(self):
+        DistanceMoved = 0
+        while True:
+
+            #Taking the Raw amount of rotations the motor has done and turning that into distance travled
+            RawMotor = self.drive.MotorPosition
+            Wheel_rotations = (RawMotor/4096)*self.GearRatio
+            DistanceMoved = Wheel_rotations * 3.14159 * self.WheelDiameter
+
+            #These lines make it so that no mater what heading the robot is at, the robot knows where it is at
+
+            self.pos.increase_x(DistanceMoved * cos_deg(self.gyro.get_heading))
+            self.pos.increase_y(DistanceMoved * sin_deg(self.gyro.get_heading))
+
+    def get_pos(self):
+        return self.pos
+
+
+
+
+
+
+# class Tracking1Odom
+
+# Class Tracking2Odom
 
 
 if DriveTrainType == "tank":
