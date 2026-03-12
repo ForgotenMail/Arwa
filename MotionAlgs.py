@@ -1,8 +1,18 @@
 # Motion algorithm implementations.
-# This file should contain algorithm application logic only.
+# This file contains algorithm application logic only.
 
 from drivetrains import Gyro, GearRatio, WheelDiamater, drive
-from Classes import clamp, distance_between, normalize_angle_deg, atan2_deg, get_xy, abs_value
+from Classes import (
+    clamp,
+    distance_between,
+    normalize_angle_deg,
+    atan2_deg,
+    get_xy,
+    abs_value,
+    sin_deg,
+    cos_deg,
+    closest_point,
+)
 
 # Linear heading-hold PID gains.
 LinearKp = 0.55
@@ -35,8 +45,66 @@ def _get_heading_degrees():
         return Gyro.get_heading("degrees")
 
 
+# Compute the lookahead point by walking forward from the closest point.
+def _calculate_lookahead_point(path, robot_x, robot_y, lookahead_inches):
+    # Start from the closest projected point on the path.
+    closest_segment, closest = closest_point(path, (robot_x, robot_y))
+
+    # Move forward across segments by lookahead distance.
+    remaining = lookahead_inches
+    lookahead = closest
+    i = closest_segment
+    current = closest
+
+    # Walk segment-by-segment until lookahead is located.
+    while i < len(path) - 1:
+        nxt = path[i + 1]
+        seg_len = distance_between(current[0], current[1], nxt[0], nxt[1])
+
+        # If lookahead falls on this segment, interpolate and stop.
+        if seg_len >= remaining and seg_len > 0:
+            ratio = remaining / seg_len
+            lookahead = (
+                current[0] + ((nxt[0] - current[0]) * ratio),
+                current[1] + ((nxt[1] - current[1]) * ratio),
+            )
+            break
+
+        # Otherwise consume the full segment and continue.
+        remaining -= seg_len
+        current = nxt
+        lookahead = nxt
+        i += 1
+
+    # Return the final lookahead coordinate.
+    return lookahead
+
+
+# Compute pursuit arc curvature from robot pose to lookahead point.
+def _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, lookahead_y):
+    # Build vector from robot to lookahead in field frame.
+    dx = lookahead_x - robot_x
+    dy = lookahead_y - robot_y
+
+    # Compute straight-line distance to lookahead.
+    lookahead_dist = distance_between(robot_x, robot_y, lookahead_x, lookahead_y)
+    if lookahead_dist == 0:
+        return 0
+
+    # Transform into robot frame using inverse heading rotation.
+    x_robot = (dx * cos_deg(robot_heading_deg)) + (dy * sin_deg(robot_heading_deg))
+    y_robot = (-dx * sin_deg(robot_heading_deg)) + (dy * cos_deg(robot_heading_deg))
+
+    # Curvature for circle from robot origin to target point.
+    # k = 2*y / (x^2 + y^2)
+    denom = (x_robot * x_robot) + (y_robot * y_robot)
+    if denom == 0:
+        return 0
+    return (2 * y_robot) / denom
+
+
 # Drive a target linear distance while correcting heading with PID.
-def LinearPID(distance_inches, speed_volts, target_heading_deg, max_steps=500):
+def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max_steps=500):
     # Save starting encoder position.
     start_ticks = drive.MotorPosition()
     # Store previous heading error for derivative term.
@@ -46,9 +114,9 @@ def LinearPID(distance_inches, speed_volts, target_heading_deg, max_steps=500):
     # Loop counter used as a safety stop.
     steps = 0
 
-    # Run until distance goal or loop safety limit is reached.
+    # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
-        # Measure current heading and compute heading error.
+        # Measure current heading and compute wrapped heading error.
         heading = _get_heading_degrees()
         error = normalize_angle_deg(target_heading_deg - heading)
 
@@ -59,12 +127,19 @@ def LinearPID(distance_inches, speed_volts, target_heading_deg, max_steps=500):
 
         # Combine PID terms into steering correction.
         correction = (LinearKp * error) + (LinearKi * integral) + (LinearKd * derivative)
-        # Apply forward command plus turn correction.
-        drive.drive_tank(clamp(speed_volts, -12, 12), clamp(correction, -12, 12))
+        correction = clamp(correction, -12, 12)
+
+        # Reduce forward power as turning demand increases.
+        # This makes correction affect how aggressively we drive forward.
+        adjusted_speed = speed - abs_value(correction)
+        adjusted_speed = clamp(adjusted_speed, -12, 12)
+
+        # Drive with exactly two tank values: forward speed and turn correction.
+        drive.drive_tank(adjusted_speed, correction)
 
         # Check distance completion from encoder feedback.
         driven = abs_value(_motor_distance_inches(start_ticks, drive.MotorPosition()))
-        if driven >= abs_value(distance_inches):
+        if driven >= (abs_value(distance_inches) - buffer_inches):
             break
 
         # Increment loop safety counter.
@@ -75,7 +150,7 @@ def LinearPID(distance_inches, speed_volts, target_heading_deg, max_steps=500):
 
 
 # Turn to a target heading using angular PID.
-def AngularPID(speed_volts, target_heading_deg, buffer_deg=1.5, max_steps=400):
+def AngularPID(speed, target_heading_deg, buffer_deg=1.5, max_steps=400):
     # Store previous heading error for derivative term.
     previous_error = 0
     # Store integrated heading error for integral term.
@@ -96,9 +171,10 @@ def AngularPID(speed_volts, target_heading_deg, buffer_deg=1.5, max_steps=400):
 
         # Build turn output and clamp to drivetrain range.
         pid = (AngularKp * error) + (AngularKi * integral) + (AngularKd * derivative)
-        turn_cmd = clamp(pid * speed_volts, -12, 12)
-        # Command an in-place turn.
-        drive.drive_tank(0, turn_cmd)
+        correction = clamp(pid * speed, -12, 12)
+
+        # Drive with exactly two tank values: forward speed and turn correction.
+        drive.drive_tank(0, correction)
 
         # Stop once within angular tolerance.
         if abs_value(error) <= buffer_deg:
@@ -111,116 +187,47 @@ def AngularPID(speed_volts, target_heading_deg, buffer_deg=1.5, max_steps=400):
     drive.drive_tank(0, 0)
 
 
-# Project a point onto the line segment [start, end].
-def _segment_projection(start, end, point):
-    # Unpack endpoint and query point coordinates.
-    sx, sy = start
-    ex, ey = end
-    px, py = point
-
-    # Compute segment direction vector.
-    dx = ex - sx
-    dy = ey - sy
-    seg_len2 = (dx * dx) + (dy * dy)
-
-    # Handle zero-length segment safely.
-    if seg_len2 == 0:
-        return start
-
-    # Compute normalized projection value along the segment.
-    t = (((px - sx) * dx) + ((py - sy) * dy)) / seg_len2
-    # Clamp projection to remain on the segment.
-    t = clamp(t, 0, 1)
-    # Return projected coordinate.
-    return (sx + (t * dx), sy + (t * dy))
-
-
-# Find the closest point to robot position on a polyline path.
-def _closest_point(path, position):
-    # Default best values from path start.
-    best_idx = 0
-    best_point = path[0]
-    best_dist = 999999999
-
-    # Check each segment projection and keep the nearest result.
-    i = 0
-    while i < len(path) - 1:
-        projected = _segment_projection(path[i], path[i + 1], position)
-        d = distance_between(projected[0], projected[1], position[0], position[1])
-        if d < best_dist:
-            best_dist = d
-            best_idx = i
-            best_point = projected
-        i += 1
-
-    # Return segment index and closest projected coordinate.
-    return best_idx, best_point
-
-
-# Follow a path using pure pursuit lookahead steering.
-def PurePursuit(path, tracker, speed_volts=6, lookahead_inches=8, heading_kp=0.08, stop_tolerance_inches=1, max_steps=1200):
-    # Normalize input points to (x, y) tuples.
+# Follow a path using pure pursuit with explicit readable steps.
+def PurePursuit(path, tracker, speed=6, lookahead_inches=8, stop_tolerance_inches=1, max_steps=1200):
+    # Convert input points into a clean tuple list.
     clean_path = []
     for p in path:
         x, y = get_xy(p)
         clean_path.append((x, y))
 
-    # Require at least one segment to follow.
+    # Require at least one line segment.
     if len(clean_path) < 2:
         return
 
-    # Clamp commanded speed once per routine.
-    speed_cmd = clamp(speed_volts, -12, 12)
-    # Loop counter used as a safety stop.
+    # Clamp base forward speed once.
+    speed = clamp(speed, -12, 12)
     steps = 0
 
-    # Continue path following until the end tolerance is met.
+    # Run path following loop.
     while steps < max_steps:
-        # Read robot position from the provided tracker.
+        # Read robot pose from tracker and gyro.
         robot_pos = tracker.get_pos()
-        rx, ry = get_xy(robot_pos)
+        robot_x, robot_y = get_xy(robot_pos)
+        robot_heading_deg = _get_heading_degrees()
 
-        # Find the nearest point on the path.
-        closest_segment, closest = _closest_point(clean_path, (rx, ry))
+        # STEP 1: Calculate lookahead point on the path.
+        lookahead_x, lookahead_y = _calculate_lookahead_point(clean_path, robot_x, robot_y, lookahead_inches)
 
-        # Walk forward from nearest point by lookahead distance.
-        remaining = lookahead_inches
-        lookahead = closest
-        i = closest_segment
-        current = closest
+        # STEP 2: Calculate the arc curvature from robot to lookahead point.
+        curvature = _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, lookahead_y)
 
-        # March across segments until lookahead point is found.
-        while i < len(clean_path) - 1:
-            nxt = clean_path[i + 1]
-            seg_len = distance_between(current[0], current[1], nxt[0], nxt[1])
+        # STEP 3: Convert curvature to motor drive values for forward motion.
+        # Use speed for forward command and curvature-scaled correction for turn.
+        correction = clamp(curvature * speed * 12, -12, 12)
+        forward = speed - abs_value(correction)
+        forward = clamp(forward, -12, 12)
 
-            # Interpolate inside this segment when lookahead lands here.
-            if seg_len >= remaining and seg_len > 0:
-                ratio = remaining / seg_len
-                lookahead = (
-                    current[0] + ((nxt[0] - current[0]) * ratio),
-                    current[1] + ((nxt[1] - current[1]) * ratio),
-                )
-                break
+        # Drive with exactly two tank values: forward speed and turn correction.
+        drive.drive_tank(forward, correction)
 
-            # Otherwise consume this full segment and continue.
-            remaining -= seg_len
-            current = nxt
-            lookahead = nxt
-            i += 1
-
-        # Convert lookahead vector into heading target.
-        target_heading = atan2_deg(lookahead[1] - ry, lookahead[0] - rx)
-        # Compute wrapped heading error.
-        heading_error = normalize_angle_deg(target_heading - _get_heading_degrees())
-        # Convert heading error into a bounded turn command.
-        turn = clamp(heading_error * heading_kp, -12, 12)
-        # Drive forward with steering correction.
-        drive.drive_tank(speed_cmd, turn)
-
-        # Stop when robot reaches the path endpoint tolerance.
+        # Stop when close enough to path endpoint.
         end_x, end_y = clean_path[len(clean_path) - 1]
-        if distance_between(rx, ry, end_x, end_y) <= stop_tolerance_inches:
+        if distance_between(robot_x, robot_y, end_x, end_y) <= stop_tolerance_inches:
             break
 
         # Increment loop safety counter.

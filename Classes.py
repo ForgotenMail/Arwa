@@ -12,6 +12,22 @@ class Point:
         self.x = x
         self.y = y
 
+    # Getter for x.
+    def get_x(self):
+        return self.x
+
+    # Getter for y.
+    def get_y(self):
+        return self.y
+
+    # Setter for x.
+    def set_x(self, x):
+        self.x = x
+
+    # Setter for y.
+    def set_y(self, y):
+        self.y = y
+
     # Increment point x coordinate.
     def increase_x(self, amount):
         self.x += amount
@@ -109,6 +125,53 @@ def get_xy(point):
     if hasattr(point, "x") and hasattr(point, "y"):
         return point.x, point.y
     return point[0], point[1]
+
+
+# Project a point onto a path segment.
+def segment_projection(start, end, point):
+    # Unpack start, end, and query points.
+    sx, sy = start
+    ex, ey = end
+    px, py = point
+
+    # Build the segment vector.
+    dx = ex - sx
+    dy = ey - sy
+    seg_len2 = (dx * dx) + (dy * dy)
+
+    # If segment is degenerate, return the start point.
+    if seg_len2 == 0:
+        return start
+
+    # Compute normalized distance along segment.
+    t = (((px - sx) * dx) + ((py - sy) * dy)) / seg_len2
+    # Keep the result inside segment endpoints.
+    t = clamp(t, 0, 1)
+
+    # Return projected coordinate.
+    return (sx + (t * dx), sy + (t * dy))
+
+
+# Find the closest point on a polyline path to a position.
+def closest_point(path, position):
+    # Default best result from path start.
+    best_idx = 0
+    best_point = path[0]
+    best_dist = 999999999
+
+    # Evaluate each segment projection.
+    i = 0
+    while i < len(path) - 1:
+        projected = segment_projection(path[i], path[i + 1], position)
+        d = distance_between(projected[0], projected[1], position[0], position[1])
+        if d < best_dist:
+            best_dist = d
+            best_idx = i
+            best_point = projected
+        i += 1
+
+    # Return segment index and projected point.
+    return best_idx, best_point
 
 
 # Compute factorial using iterative multiplication.
