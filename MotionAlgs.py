@@ -1,6 +1,6 @@
-from math import degrees
-from turtle import heading
+
 from drivetrains import drive, Gyro, GearRatio, WheelDiamater
+from Classes import point
 
 #This File controls all of the motion algorithms
 #This file includes PID, and Pure Pursuit
@@ -63,3 +63,12 @@ def AngularPID(Speed, Target, Buffer)
         PID = P + Ipid + D
 
         drive.drive_tank(0, (Speed*PID)/12)
+
+
+def PurePursuit(Lookahead, Speed, Tracking, drive, Path)
+    # _l is lookahead point
+    # _r is robot position
+    #Storing the first two points of the path
+    while`1
+    P1 = Path[0]
+    P2 = Path[1]
