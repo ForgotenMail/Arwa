@@ -1,4 +1,4 @@
-from venice import Direction, Gearset, Motor
+from venice import Direction, Gearset, Motor, RotationSensor, RotationUnit
 from Classes import Point, factorial, sin_deg, cos_deg, deg_to_rad
 """This file is where you will define your drivetrain
 The variable DriveTrainType is what defines what dirve train you have, the current drivetrains that are
@@ -50,6 +50,13 @@ def create_motor(port: int) -> Motor:
     else:
         return Motor(port_abs, Direction.FORWARD, Gearset.GREEN)
 
+
+def create_rotation(port: int) -> RotationSensor:
+    port_abs: int = abs(port)
+    if port < 0:
+        return RotationSensor(port_abs, Direction.REVERSE)
+    else:
+        return RotationSensor(port_abs, Direction.FORWARD)
 
 class TankDrivetrain:
     def __init__(self, left_ports: list[int], right_ports: list[int]):
@@ -225,7 +232,31 @@ class TrackingNoOdom:
 
 
 
-# class Tracking1Odom
+class Tracking1Odom:
+    def __init__(self, Gyro, drive, OdomDiameter, OdomPorts):
+        self.gyro = Gyro
+        self.drive = drive
+        self.pos = Point(0, 0)
+        self.OdomDiameter = OdomDiameter
+        self.OdomPod1 = create_rotation(OdomPorts)
+
+    #This function continously updates the position of the robot
+    # Each loop it takes the information from the motors and updates the positions
+    def updatePose(self):
+        DistanceMoved = 0
+        while True:
+
+            #Taking the Raw amount of rotations the motor has done and turning that into distance travled
+            RawRotations = self.OdomPod1.position(DEGREES)
+
+            #These lines make it so that no mater what heading the robot is at, the robot knows where it is at
+
+            self.pos.increase_x(DistanceMoved * cos_deg(self.gyro.get_heading))
+            self.pos.increase_y(DistanceMoved * sin_deg(self.gyro.get_heading))
+
+    def get_pos(self):
+        return self.pos
+
 
 # Class Tracking2Odom
 
