@@ -53,15 +53,6 @@ def abs_value(value):
     return value
 
 
-# Return sign of a number (+1, -1, 0).
-def sign(value):
-    if value > 0:
-        return 1
-    if value < 0:
-        return -1
-    return 0
-
-
 # Compute square root using Newton's method.
 def sqrt_value(value):
     # Guard against negative/zero inputs.
@@ -96,22 +87,18 @@ def normalize_angle_deg(angle):
 
 # Approximate atan(z) for |z| roughly <= 1 using a short series.
 def _atan_small(z):
-    # Use additional terms for better accuracy near |z| = 1.
     z2 = z * z
-    z3 = z2 * z
-    z5 = z3 * z2
-    z7 = z5 * z2
-    return z - (z3 / 3) + (z5 / 5) - (z7 / 7)
+    return z - ((z2 * z) / 3) + ((z2 * z2 * z) / 5)
 
 
-# Approximate atan2(y, x) and return radians.
-def atan2(y, x):
+# Approximate atan2(y, x) and return degrees.
+def atan2_deg(y, x):
     # Handle vertical-axis and origin edge cases.
     if x == 0:
         if y > 0:
-            return PI / 2
+            return 90
         if y < 0:
-            return -(PI / 2)
+            return -90
         return 0
 
     # Compute slope for atan approximation.
@@ -119,24 +106,18 @@ def atan2(y, x):
 
     # Use direct approximation for moderate slopes.
     if abs_value(z) <= 1:
-        angle = _atan_small(z)
+        angle = _atan_small(z) * (180 / PI)
         if x < 0:
             if y >= 0:
-                return angle + PI
-            return angle - PI
+                return angle + 180
+            return angle - 180
         return angle
 
-    # Use atan(z) = 90 - atan(1/z) in radian form for steep slopes.
-    angle = (PI / 2) - _atan_small(1 / z)
+    # Use atan(z) = 90 - atan(1/z) for steep slopes.
+    angle = 90 - (_atan_small(1 / z) * (180 / PI))
     if y < 0:
-        angle -= PI
+        angle -= 180
     return angle
-
-
-# Approximate atan2(y, x) and return degrees.
-def atan2_deg(y, x):
-    # Reuse radian atan2 approximation and convert to degrees.
-    return atan2(y, x) * (180 / PI)
 
 
 # Get (x, y) from either Point-like object or tuple/list.
@@ -215,7 +196,7 @@ def rad_to_deg(radians):
     return radians * (180 / PI)
 
 
-# Approximate sine using Taylor series around zero.
+# Approximate sine using short Taylor series around zero.
 def sin_deg(degrees):
     x = deg_to_rad(degrees)
     # Wrap input to improve approximation stability.
@@ -224,15 +205,11 @@ def sin_deg(degrees):
     while x < -PI:
         x += 2 * PI
 
-    # 7th-order sine expansion.
     x2 = x * x
-    x3 = x2 * x
-    x5 = x3 * x2
-    x7 = x5 * x2
-    return x - (x3 / 6) + (x5 / 120) - (x7 / 5040)
+    return x - ((x2 * x) / 6) + ((x2 * x2 * x) / 120)
 
 
-# Approximate cosine using Taylor series around zero.
+# Approximate cosine using short Taylor series around zero.
 def cos_deg(degrees):
     x = deg_to_rad(degrees)
     # Wrap input to improve approximation stability.
@@ -241,8 +218,5 @@ def cos_deg(degrees):
     while x < -PI:
         x += 2 * PI
 
-    # 6th-order cosine expansion.
     x2 = x * x
-    x4 = x2 * x2
-    x6 = x4 * x2
-    return 1 - (x2 / 2) + (x4 / 24) - (x6 / 720)
+    return 1 - (x2 / 2) + ((x2 * x2) / 24)

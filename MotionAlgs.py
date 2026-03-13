@@ -9,7 +9,6 @@ from Classes import (
     atan2_deg,
     get_xy,
     abs_value,
-    sign,
     sin_deg,
     cos_deg,
     closest_point,
@@ -87,11 +86,16 @@ def _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, l
     dx = lookahead_x - robot_x
     dy = lookahead_y - robot_y
 
+    # Compute straight-line distance to lookahead.
+    lookahead_dist = distance_between(robot_x, robot_y, lookahead_x, lookahead_y)
+    if lookahead_dist == 0:
+        return 0
+
     # Transform into robot frame using inverse heading rotation.
     x_robot = (dx * cos_deg(robot_heading_deg)) + (dy * sin_deg(robot_heading_deg))
     y_robot = (-dx * sin_deg(robot_heading_deg)) + (dy * cos_deg(robot_heading_deg))
 
-    # Curvature for circle from robot origin to target point:
+    # Curvature for circle from robot origin to target point.
     # k = 2*y / (x^2 + y^2)
     denom = (x_robot * x_robot) + (y_robot * y_robot)
     if denom == 0:
@@ -103,8 +107,6 @@ def _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, l
 def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max_steps=500):
     # Save starting encoder position.
     start_ticks = drive.MotorPosition()
-    # Clamp requested speed to valid range once.
-    base_speed = clamp(speed, -12, 12)
     # Store previous heading error for derivative term.
     previous_error = 0
     # Store integrated heading error for integral term.
@@ -112,10 +114,8 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
     # Loop counter used as a safety stop.
     steps = 0
 
-    # Build a safe distance threshold that cannot go below zero.
-    distance_target = abs_value(distance_inches)
-    distance_buffer = abs_value(buffer_inches)
-    distance_threshold = clamp(distance_target - distance_buffer, 0, distance_target)
+from drivetrains import drive, Gyro, GearRatio, WheelDiamater
+from Classes import point
 
     # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
@@ -132,17 +132,17 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
         correction = (LinearKp * error) + (LinearKi * integral) + (LinearKd * derivative)
         correction = clamp(correction, -12, 12)
 
-        # Reduce forward magnitude as turning demand increases.
-        # Keep the original drive direction (forward/reverse) from speed sign.
-        forward_mag = clamp(abs_value(base_speed) - abs_value(correction), 0, 12)
-        forward = sign(base_speed) * forward_mag
+        # Reduce forward power as turning demand increases.
+        # This makes correction affect how aggressively we drive forward.
+        adjusted_speed = speed - abs_value(correction)
+        adjusted_speed = clamp(adjusted_speed, -12, 12)
 
         # Drive with exactly two tank values: forward speed and turn correction.
-        drive.drive_tank(forward, correction)
+        drive.drive_tank(adjusted_speed, correction)
 
         # Check distance completion from encoder feedback.
         driven = abs_value(_motor_distance_inches(start_ticks, drive.MotorPosition()))
-        if driven >= distance_threshold:
+        if driven >= (abs_value(distance_inches) - buffer_inches):
             break
 
         # Increment loop safety counter.
@@ -154,8 +154,6 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
 
 # Turn to a target heading using angular PID.
 def AngularPID(speed, target_heading_deg, buffer_deg=1.5, max_steps=400):
-    # Clamp requested speed magnitude for turn scaling.
-    turn_scale = abs_value(clamp(speed, -12, 12))
     # Store previous heading error for derivative term.
     previous_error = 0
     # Store integrated heading error for integral term.
@@ -176,7 +174,7 @@ def AngularPID(speed, target_heading_deg, buffer_deg=1.5, max_steps=400):
 
         # Build turn output and clamp to drivetrain range.
         pid = (AngularKp * error) + (AngularKi * integral) + (AngularKd * derivative)
-        correction = clamp(pid * turn_scale, -12, 12)
+        correction = clamp(pid * speed, -12, 12)
 
         # Drive with exactly two tank values: forward speed and turn correction.
         drive.drive_tank(0, correction)
