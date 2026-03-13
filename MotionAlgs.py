@@ -114,6 +114,9 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
     # Loop counter used as a safety stop.
     steps = 0
 
+from drivetrains import drive, Gyro, GearRatio, WheelDiamater
+from Classes import point
+
     # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
         # Measure current heading and compute wrapped heading error.
@@ -235,3 +238,16 @@ def PurePursuit(path, tracker, speed=6, lookahead_inches=8, stop_tolerance_inche
 
     # Stop drivetrain at the end of the routine.
     drive.drive_tank(0, 0)
+
+        PID = P + Ipid + D
+
+        drive.drive_tank(0, (Speed*PID)/12)
+
+
+def PurePursuit(Lookahead, Speed, Tracking, drive, Path)
+    # _l is lookahead point
+    # _r is robot position
+    #Storing the first two points of the path
+    while`1
+    P1 = Path[0]
+    P2 = Path[1]
