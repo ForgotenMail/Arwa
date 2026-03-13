@@ -5,6 +5,85 @@
 PI = 3.1415926535
 
 
+
+# Convert drivetrain encoder ticks into linear inches traveled.
+def _motor_distance_inches(start_ticks, current_ticks):
+    # Convert raw tick delta to motor revolutions.
+    motor_revolutions = (current_ticks - start_ticks) / 4096.0
+    # Convert motor revolutions to wheel revolutions using configured gearing.
+    wheel_revolutions = motor_revolutions * GearRatio
+    # Convert wheel revolutions into inches of travel.
+    return wheel_revolutions * (WheelDiamater * 3.1415926535)
+
+
+# Read current heading from the configured gyro.
+def _get_heading_degrees():
+    # Some API variants accept no argument.
+    try:
+        return Gyro.get_heading()
+    # Some API variants require a unit argument.
+    except TypeError:
+        return Gyro.get_heading("degrees")
+
+
+# Compute the lookahead point by walking forward from the closest point.
+def _calculate_lookahead_point(path, robot_x, robot_y, lookahead_inches):
+    # Start from the closest projected point on the path.
+    closest_segment, closest = closest_point(path, (robot_x, robot_y))
+
+    # Move forward across segments by lookahead distance.
+    remaining = lookahead_inches
+    lookahead = closest
+    i = closest_segment
+    current = closest
+
+    # Walk segment-by-segment until lookahead is located.
+    while i < len(path) - 1:
+        nxt = path[i + 1]
+        seg_len = distance_between(current[0], current[1], nxt[0], nxt[1])
+
+        # If lookahead falls on this segment, interpolate and stop.
+        if seg_len >= remaining and seg_len > 0:
+            ratio = remaining / seg_len
+            lookahead = (
+                current[0] + ((nxt[0] - current[0]) * ratio),
+                current[1] + ((nxt[1] - current[1]) * ratio),
+            )
+            break
+
+        # Otherwise consume the full segment and continue.
+        remaining -= seg_len
+        current = nxt
+        lookahead = nxt
+        i += 1
+
+    # Return the final lookahead coordinate.
+    return lookahead
+
+
+# Compute pursuit arc curvature from robot pose to lookahead point.
+def _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, lookahead_y):
+    # Build vector from robot to lookahead in field frame.
+    dx = lookahead_x - robot_x
+    dy = lookahead_y - robot_y
+
+    # Compute straight-line distance to lookahead.
+    lookahead_dist = distance_between(robot_x, robot_y, lookahead_x, lookahead_y)
+    if lookahead_dist == 0:
+        return 0
+
+    # Transform into robot frame using inverse heading rotation.
+    x_robot = (dx * cos_deg(robot_heading_deg)) + (dy * sin_deg(robot_heading_deg))
+    y_robot = (-dx * sin_deg(robot_heading_deg)) + (dy * cos_deg(robot_heading_deg))
+
+    # Curvature for circle from robot origin to target point.
+    # k = 2*y / (x^2 + y^2)
+    denom = (x_robot * x_robot) + (y_robot * y_robot)
+    if denom == 0:
+        return 0
+    return (2 * y_robot) / denom
+
+
 # Simple mutable 2D point object.
 class Point:
     # Build a point with x/y coordinates.

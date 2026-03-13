@@ -12,6 +12,12 @@ from Classes import (
     sin_deg,
     cos_deg,
     closest_point,
+    _motor_distance_inches,
+    _get_heading_degrees,
+    _calculate_lookahead_point,
+    _calculate_arc_curvature,
+    Point
+
 )
 
 # Linear heading-hold PID gains.
@@ -114,8 +120,8 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
     # Loop counter used as a safety stop.
     steps = 0
 
-from drivetrains import drive, Gyro, GearRatio, WheelDiamater
-from Classes import point
+    from drivetrains import drive, Gyro, GearRatio, WheelDiamater
+    from Classes import point
 
     # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
