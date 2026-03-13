@@ -203,7 +203,7 @@ def PurePursuit(path, tracker, speed=6, lookahead_inches=8, stop_tolerance_inche
         return
 
     # Clamp base forward speed once.
-    speed = clamp(speed, -12, 12)
+    base_speed = clamp(speed, -12, 12)
     steps = 0
 
     # Run path following loop.
@@ -220,10 +220,11 @@ def PurePursuit(path, tracker, speed=6, lookahead_inches=8, stop_tolerance_inche
         curvature = _calculate_arc_curvature(robot_x, robot_y, robot_heading_deg, lookahead_x, lookahead_y)
 
         # STEP 3: Convert curvature to motor drive values for forward motion.
-        # Use speed for forward command and curvature-scaled correction for turn.
-        correction = clamp(curvature * speed * 12, -12, 12)
-        forward = speed - abs_value(correction)
-        forward = clamp(forward, -12, 12)
+        # Scale curvature by speed to create turn correction.
+        correction = clamp(curvature * abs_value(base_speed), -12, 12)
+        # Reduce forward magnitude during aggressive turns, keep direction.
+        forward_mag = clamp(abs_value(base_speed) - abs_value(correction), 0, 12)
+        forward = sign(base_speed) * forward_mag
 
         # Drive with exactly two tank values: forward speed and turn correction.
         drive.drive_tank(forward, correction)
@@ -239,15 +240,76 @@ def PurePursuit(path, tracker, speed=6, lookahead_inches=8, stop_tolerance_inche
     # Stop drivetrain at the end of the routine.
     drive.drive_tank(0, 0)
 
-        PID = P + Ipid + D
 
-        drive.drive_tank(0, (Speed*PID)/12)
+# Drive to a field point using odometry feedback and PID-style correction.
+def OdomDriveToPoint(
+    target_x,
+    target_y,
+    tracker,
+    speed=6,
+    heading_buffer_deg=1.5,
+    distance_buffer_inches=0.5,
+    max_steps=900,
+):
+    # Clamp requested top speed once.
+    base_speed = clamp(speed, -12, 12)
 
+    # PID memory terms for heading correction.
+    previous_heading_error = 0
+    heading_integral = 0
 
-def PurePursuit(Lookahead, Speed, Tracking, drive, Path)
-    # _l is lookahead point
-    # _r is robot position
-    #Storing the first two points of the path
-    while`1
-    P1 = Path[0]
-    P2 = Path[1]
+    # Safety loop counter to avoid endless loops.
+    steps = 0
+
+    # Continuously re-target using odometry until within distance tolerance.
+    while steps < max_steps:
+        # Read current odometry-estimated robot position.
+        robot_pos = tracker.get_pos()
+        robot_x, robot_y = get_xy(robot_pos)
+
+        # Compute vector from robot to requested target point.
+        delta_x = target_x - robot_x
+        delta_y = target_y - robot_y
+
+        # Compute remaining linear distance to the target point.
+        remaining_distance = distance_between(robot_x, robot_y, target_x, target_y)
+
+        # Stop once we are inside the requested distance buffer.
+        if remaining_distance <= abs_value(distance_buffer_inches):
+            break
+
+        # Compute heading we should face to drive directly at the target.
+        target_heading_deg = atan2_deg(delta_y, delta_x)
+
+        # Compute wrapped heading error to avoid long-turn pathing.
+        heading_error = normalize_angle_deg(target_heading_deg - _get_heading_degrees())
+
+        # Update heading PID terms.
+        heading_integral += heading_error
+        heading_derivative = heading_error - previous_heading_error
+        previous_heading_error = heading_error
+
+        # Build turn correction from heading PID gains.
+        correction = (AngularKp * heading_error) + (AngularKi * heading_integral) + (AngularKd * heading_derivative)
+        correction = clamp(correction, -12, 12)
+
+        # Use remaining distance to scale forward command, capped by requested speed.
+        # This slows down naturally as we approach the point.
+        forward_limit = clamp(remaining_distance * 0.6, 0, abs_value(base_speed))
+
+        # If heading is far off, prioritize turning before pushing hard forward.
+        if abs_value(heading_error) > 30:
+            forward_limit = clamp(forward_limit * 0.35, 0, abs_value(base_speed))
+
+        # Reduce forward when correction is high, while preserving drive direction.
+        forward_mag = clamp(forward_limit - abs_value(correction), 0, abs_value(base_speed))
+        forward = sign(base_speed) * forward_mag
+
+        # Drive with exactly two values: forward and turn correction.
+        drive.drive_tank(forward, correction)
+
+        # Count this control update iteration.
+        steps += 1
+
+    # Stop the drivetrain once the routine is complete.
+    drive.drive_tank(0, 0)
