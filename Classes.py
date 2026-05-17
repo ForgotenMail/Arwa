@@ -21,6 +21,7 @@ def _motor_distance_inches(start_ticks, current_ticks):
 
 # Read current heading from a Venice inertial sensor.
 def _get_heading_degrees(gyro):
+    # Venice InertialSensor.get_heading requires an explicit RotationUnit argument.
     return gyro.get_heading(RotationUnit.DEGREES)
 
 

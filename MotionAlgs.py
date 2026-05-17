@@ -27,6 +27,7 @@ AngularKd = 0.004
 
 # Convert drivetrain encoder ticks into linear inches traveled.
 def _motor_distance_inches(start_ticks, current_ticks):
+    # MotorPosition() returns Venice raw encoder ticks, so convert ticks to inches.
     # Convert raw tick delta to motor revolutions.
     motor_revolutions = (current_ticks - start_ticks) / 4096.0
     # Convert motor revolutions to wheel revolutions using configured gearing.
@@ -37,10 +38,12 @@ def _motor_distance_inches(start_ticks, current_ticks):
 
 # Read current heading from the configured Venice inertial sensor.
 def _get_heading_degrees():
+    # Venice requires the unit argument; degrees match the rest of this file's math.
     return Gyro.get_heading(RotationUnit.DEGREES)
 
 
 def sign(value):
+    """Return the direction multiplier used to preserve positive/negative speeds."""
     if value < 0:
         return -1
     return 1
@@ -138,7 +141,7 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
         # Drive with exactly two tank values: forward speed and turn correction.
         drive.drive_tank(adjusted_speed, correction)
 
-        # Check distance completion from encoder feedback.
+        # Check distance completion from Venice motor encoder feedback.
         driven = abs_value(_motor_distance_inches(start_ticks, drive.MotorPosition()))
         if driven >= (abs_value(distance_inches) - buffer_inches):
             break
