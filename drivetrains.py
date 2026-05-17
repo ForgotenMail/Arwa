@@ -1,5 +1,11 @@
-from venice import Direction, Gearset, Motor, RotationSensor, RotationUnit
-from Classes import Point, factorial, sin_deg, cos_deg, deg_to_rad
+from venice import Direction, Gearset, InertialSensor, Motor, RotationSensor, RotationUnit
+from Classes import Point, sin_deg, cos_deg
+
+
+# Venice API notes:
+# - Motor and RotationSensor constructors both take a Smart Port number plus a Direction.
+# - Encoder/rotation reads use explicit RotationUnit values where the API requires units.
+# - Motor voltage commands are in volts, so drivetrain outputs are clamped to +/-12V.
 
 
 """This file is where you will define your drivetrain
@@ -45,17 +51,40 @@ OdomDiameter  = 5
 # Each drivetrain contaitns the logic on how to move given Forward velocity, and how much you want to turn
 
 
+def clamp_voltage(voltage):
+    """Keep every Venice Motor.set_voltage command inside the legal +/-12V range."""
+    return max(-12, min(12, voltage))
+
+
+def tank_voltages(forward, turn):
+    """Convert forward/turn requests into left/right tank-drive voltages."""
+    left_voltage = clamp_voltage(forward + turn)
+    right_voltage = clamp_voltage(forward - turn)
+    return left_voltage, right_voltage
+
+
+def _first_port(port_or_ports):
+    """Allow one-odom configs to pass either a single port or a one-item port list."""
+    if isinstance(port_or_ports, list):
+        return port_or_ports[0]
+    return port_or_ports
+
+
 def create_motor(port: int) -> Motor:
+    """Create a Venice Motor, using a negative port number to mark it reversed."""
     port_abs: int = abs(port)
     if port < 0:
+        # Venice expects the reversal as Direction.REVERSE, not as a negative port.
         return Motor(port_abs, Direction.REVERSE, Gearset.GREEN)
     else:
         return Motor(port_abs, Direction.FORWARD, Gearset.GREEN)
 
 
 def create_rotation(port: int) -> RotationSensor:
+    """Create a Venice RotationSensor, using a negative port number to mark it reversed."""
     port_abs: int = abs(port)
     if port < 0:
+        # RotationSensor follows the same Direction enum pattern as Motor.
         return RotationSensor(port_abs, Direction.REVERSE)
     else:
         return RotationSensor(port_abs, Direction.FORWARD)
@@ -70,25 +99,20 @@ class TankDrivetrain:
         # and how fast you want to turn. This means regardless of our drivetrain type,
         #  we can call the same function!
 
-        if velocity + turn > 12 or velocity + turn < -12:
-            right_Norm = velocity + turn - 12
-        elif velocity - turn > 12 or velocity - turn < -12:
-            left_norm = velocity - turn -12
-
-        right_norm = 0
-        left_norm = 0
+        left_voltage, right_voltage = tank_voltages(velocity, turn)
 
         for m in self.left_motors:
-            m.set_voltage(velocity + turn - left_norm)
+            m.set_voltage(left_voltage)
         for m in self.right_motors:
-            m.set_voltage(velocity - turn - right_norm)
+            m.set_voltage(right_voltage)
 
     def MotorPosition(self):
+        # Venice exposes raw encoder ticks with get_raw_position().
         Amt_Motors = 0
         Total = 0
         for m in self.left_motors + self.right_motors:
             Amt_Motors += 1
-            Total += m.raw_position()
+            Total += m.get_raw_position()
         return Total / Amt_Motors
 
 
@@ -100,19 +124,9 @@ class HolomonicDrive:
         self.RightBack = create_motor(right_ports[1])
 
     def drive_tank(self, Forward, Rotate):
-
-        right_norm = 0
-        left_norm = 0
-
-        if Forward + Rotate > 12 or Forward + Rotate < -12:
-            right_Norm = Forward + Rotate - 12
-        elif Forward - Rotate > 12 or Forward - Rotate < -12:
-            left_norm = Forward - Rotate -12
-
-        FL = max(-12, min(12, Forward + Rotate - left_norm))
-        FR = max(-12, min(12, Forward - Rotate - right_norm))
-        BL = max(-12, min(12, Forward + Rotate - left_norm))
-        BR = max(-12, min(12, Forward - Rotate - right_norm))
+        # Reuse tank math so autonomous routines can call drive_tank on any drive type.
+        FL, FR = tank_voltages(Forward, Rotate)
+        BL, BR = FL, FR
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -120,8 +134,11 @@ class HolomonicDrive:
         self.RightBack.set_voltage(BR)
 
     def drive_holomonic(self, Forward, Lateral, Rotate):
-        FL = max(-12, min(12, Forward + Lateral + Rotate))
-        BR = max(-12, min(12, Forward + Lateral - Rotate))
+        # X-drive/mecanum mixing: combine forward, strafe, and turn, then clamp volts.
+        FL = clamp_voltage(Forward + Lateral + Rotate)
+        FR = clamp_voltage(Forward - Lateral - Rotate)
+        BL = clamp_voltage(Forward - Lateral + Rotate)
+        BR = clamp_voltage(Forward + Lateral - Rotate)
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -129,11 +146,12 @@ class HolomonicDrive:
         self.RightBack.set_voltage(BR)
 
     def MotorPosition(self):
+        # Average all motor encoders so PID distance checks use one drivetrain value.
         Total = 0
-        Total += self.LeftFront.raw_position()
-        Total += self.RightFront.raw_position()
-        Total += self.RightBack.raw_position()
-        Total += self.LeftBack.raw_position()
+        Total += self.LeftFront.get_raw_position()
+        Total += self.RightFront.get_raw_position()
+        Total += self.RightBack.get_raw_position()
+        Total += self.LeftBack.get_raw_position()
 
         return Total / 4
 
@@ -148,23 +166,10 @@ class HolomonicDrive6:
         self.RightBack = create_motor(right_ports[2])
 
     def drive_tank(self, Forward, Rotate):
-
-        right_norm = 0
-        left_norm = 0
-
-        if Forward + Rotate > 12 or Forward + Rotate < -12:
-            right_Norm = Forward + Rotate - 12
-        elif Forward - Rotate > 12 or Forward - Rotate < -12:
-            left_norm = Forward - Rotate -12
-
-
-
-        FL = max(-12, min(12, Forward + Rotate - left_norm))
-        FR = max(-12, min(12, Forward - Rotate - right_norm))
-        ML = max(-12, min(12, Forward + Rotate - left_norm))
-        MR = max(-12, min(12, Forward - Rotate - right_norm))
-        BL = max(-12, min(12, Forward + Rotate - left_norm))
-        BR = max(-12, min(12, Forward - Rotate - right_norm))
+        # Six-motor tank mode mirrors each side's voltage across front/middle/back.
+        FL, FR = tank_voltages(Forward, Rotate)
+        ML, MR = FL, FR
+        BL, BR = FL, FR
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -174,12 +179,13 @@ class HolomonicDrive6:
         self.RightBack.set_voltage(BR)
 
     def drive_holomonic(self, Forward, Lateral, Rotate):
-        FL = max(-12, min(12, Forward + Lateral + Rotate))
-        FR = max(-12, min(12, Forward - Lateral - Rotate))
-        ML = max(-12, min(12, Forward + Rotate))
-        MR = max(-12, min(12, Forward - Rotate))
-        BL = max(-12, min(12, Forward - Lateral + Rotate))
-        BR = max(-12, min(12, Forward + Lateral - Rotate))
+        # Six-motor holonomic mixing keeps middle motors out of the strafe term.
+        FL = clamp_voltage(Forward + Lateral + Rotate)
+        FR = clamp_voltage(Forward - Lateral - Rotate)
+        ML = clamp_voltage(Forward + Rotate)
+        MR = clamp_voltage(Forward - Rotate)
+        BL = clamp_voltage(Forward - Lateral + Rotate)
+        BR = clamp_voltage(Forward + Lateral - Rotate)
 
         self.LeftFront.set_voltage(FL)
         self.RightFront.set_voltage(FR)
@@ -189,13 +195,14 @@ class HolomonicDrive6:
         self.RightBack.set_voltage(BR)
 
     def MotorPosition(self):
+        # Average all six raw motor encoder positions.
         Total = 0
-        Total += self.LeftFront.raw_position()
-        Total += self.RightFront.raw_position()
-        Total += self.RightMiddle.raw_position()
-        Total += self.LeftMiddle.raw_position()
-        Total += self.RightBack.raw_position()
-        Total += self.LeftBack.raw_position()
+        Total += self.LeftFront.get_raw_position()
+        Total += self.RightFront.get_raw_position()
+        Total += self.RightMiddle.get_raw_position()
+        Total += self.LeftMiddle.get_raw_position()
+        Total += self.RightBack.get_raw_position()
+        Total += self.LeftBack.get_raw_position()
 
         return Total / 6
 
@@ -208,14 +215,14 @@ class TrackingNoOdom:
         self.WheelDiameter = WheelDiameter
 
         # Store previous motor position to calculate delta
-        self.prev_motor = self.drive.MotorPosition
+        self.prev_motor = self.drive.MotorPosition()
 
     # This function continuously updates the position of the robot
     # Each loop it takes the information from the motors and updates the positions
     def updatePose(self):
         while True:
             # Read current motor rotation
-            curr_motor = self.drive.MotorPosition
+            curr_motor = self.drive.MotorPosition()
 
             # Calculate change since last update
             delta_motor = curr_motor - self.prev_motor
@@ -223,7 +230,8 @@ class TrackingNoOdom:
             DistanceMoved = Wheel_rotations * 3.14159 * self.WheelDiameter
 
             # Update global position using current heading
-            heading = self.gyro.get_heading
+            # Venice requires an explicit RotationUnit for heading reads.
+            heading = self.gyro.get_heading(RotationUnit.DEGREES)
             self.pos.increase_x(DistanceMoved * cos_deg(heading))
             self.pos.increase_y(DistanceMoved * sin_deg(heading))
 
@@ -239,24 +247,25 @@ class Tracking1Odom:
         self.gyro = Gyro
         self.pos = Point(0, 0)
         self.OdomDiameter = OdomDiameter
-        self.OdomPod1 = create_rotation(OdomPorts)
+        self.OdomPod1 = create_rotation(_first_port(OdomPorts))
 
         # Store previous pod position to calculate delta
-        self.prev_odom = self.OdomPod1.position(DEGREES)
+        # RotationSensor.get_position() also requires an explicit RotationUnit.
+        self.prev_odom = self.OdomPod1.get_position(RotationUnit.DEGREES)
 
     # This function continuously updates the position of the robot
     # Each loop it takes the information from the odom pod and updates the positions
     def updatePose(self):
         while True:
             # Read current odom pod rotation
-            curr_odom = self.OdomPod1.position(DEGREES)
+            curr_odom = self.OdomPod1.get_position(RotationUnit.DEGREES)
 
             # Calculate change since last update
             delta_rot = curr_odom - self.prev_odom
             DistanceMoved = delta_rot * self.OdomDiameter * 3.14159 / 360  # convert degrees to revolutions
 
             # Update global position using current heading
-            heading = self.gyro.get_heading
+            heading = self.gyro.get_heading(RotationUnit.DEGREES)
             self.pos.increase_x(DistanceMoved * cos_deg(heading))
             self.pos.increase_y(DistanceMoved * sin_deg(heading))
 
@@ -279,8 +288,9 @@ class Tracking2Odom:
         self.OdomPodHorizontal = create_rotation(OdomPorts[1])
 
         # Store previous positions for delta calculation
-        self.prev_vert = self.OdomPodVertical.position(DEGREES)
-        self.prev_horiz = self.OdomPodHorizontal.position(DEGREES)
+        # Store both odom pods in degrees so the distance math below can divide by 360.
+        self.prev_vert = self.OdomPodVertical.get_position(RotationUnit.DEGREES)
+        self.prev_horiz = self.OdomPodHorizontal.get_position(RotationUnit.DEGREES)
 
     # This function continuously updates the position of the robot
     # Each loop it takes the information from the odom pods and updates the positions
@@ -288,15 +298,15 @@ class Tracking2Odom:
         while True:
 
             # Read current odom pod rotations
-            curr_vert = self.OdomPodVertical.position(DEGREES)
-            curr_horiz = self.OdomPodHorizontal.position(DEGREES)
+            curr_vert = self.OdomPodVertical.get_position(RotationUnit.DEGREES)
+            curr_horiz = self.OdomPodHorizontal.get_position(RotationUnit.DEGREES)
 
             # Compute how much each pod moved since last update
             delta_vert = (curr_vert - self.prev_vert) * self.OdomDiameter * 3.14159 / 360
             delta_horiz = (curr_horiz - self.prev_horiz) * self.OdomDiameter * 3.14159 / 360
 
             # Rotate local movement by current heading to get field coordinates
-            heading = self.gyro.get_heading
+            heading = self.gyro.get_heading(RotationUnit.DEGREES)
             self.pos.increase_x(delta_horiz * cos_deg(heading) - delta_vert * sin_deg(heading))
             self.pos.increase_y(delta_horiz * sin_deg(heading) + delta_vert * cos_deg(heading))
 
@@ -316,6 +326,7 @@ elif DriveTrainType == "holomonic":
 elif DriveTrainType == "holomonic6":
     drive = HolomonicDrive6(LeftMotors, RightMotors)
 else:
+    drive = None
     print("ded")
 
 if AmtOdom == 0:

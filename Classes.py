@@ -1,6 +1,9 @@
 # Shared utility classes/functions used across the project.
 # These are code-level helpers and not physical declarations.
 
+from venice import RotationUnit
+
+
 # Shared math constant for geometry helpers.
 PI = 3.1415926535
 
@@ -16,14 +19,10 @@ def _motor_distance_inches(start_ticks, current_ticks):
     return wheel_revolutions * (WheelDiamater * 3.1415926535)
 
 
-# Read current heading from the configured gyro.
-def _get_heading_degrees():
-    # Some API variants accept no argument.
-    try:
-        return Gyro.get_heading()
-    # Some API variants require a unit argument.
-    except TypeError:
-        return Gyro.get_heading("degrees")
+# Read current heading from a Venice inertial sensor.
+def _get_heading_degrees(gyro):
+    # Venice InertialSensor.get_heading requires an explicit RotationUnit argument.
+    return gyro.get_heading(RotationUnit.DEGREES)
 
 
 # Compute the lookahead point by walking forward from the closest point.

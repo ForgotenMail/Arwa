@@ -1,6 +1,7 @@
 # Motion algorithm implementations.
 # This file contains algorithm application logic only.
 
+from venice import RotationUnit
 from drivetrains import Gyro, GearRatio, WheelDiamater, drive
 from Classes import (
     clamp,
@@ -9,15 +10,8 @@ from Classes import (
     atan2_deg,
     get_xy,
     abs_value,
-    sin_deg,
-    cos_deg,
     closest_point,
-    _motor_distance_inches,
-    _get_heading_degrees,
-    _calculate_lookahead_point,
-    _calculate_arc_curvature,
     Point
-
 )
 
 # Linear heading-hold PID gains.
@@ -33,6 +27,7 @@ AngularKd = 0.004
 
 # Convert drivetrain encoder ticks into linear inches traveled.
 def _motor_distance_inches(start_ticks, current_ticks):
+    # MotorPosition() returns Venice raw encoder ticks, so convert ticks to inches.
     # Convert raw tick delta to motor revolutions.
     motor_revolutions = (current_ticks - start_ticks) / 4096.0
     # Convert motor revolutions to wheel revolutions using configured gearing.
@@ -41,14 +36,17 @@ def _motor_distance_inches(start_ticks, current_ticks):
     return wheel_revolutions * (WheelDiamater * 3.1415926535)
 
 
-# Read current heading from the configured gyro.
+# Read current heading from the configured Venice inertial sensor.
 def _get_heading_degrees():
-    # Some API variants accept no argument.
-    try:
-        return Gyro.get_heading()
-    # Some API variants require a unit argument.
-    except TypeError:
-        return Gyro.get_heading("degrees")
+    # Venice requires the unit argument; degrees match the rest of this file's math.
+    return Gyro.get_heading(RotationUnit.DEGREES)
+
+
+def sign(value):
+    """Return the direction multiplier used to preserve positive/negative speeds."""
+    if value < 0:
+        return -1
+    return 1
 
 
 # Compute the lookahead point by walking forward from the closest point.
@@ -120,9 +118,6 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
     # Loop counter used as a safety stop.
     steps = 0
 
-    from drivetrains import drive, Gyro, GearRatio, WheelDiamater
-    from Classes import point
-
     # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
         # Measure current heading and compute wrapped heading error.
@@ -146,7 +141,7 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
         # Drive with exactly two tank values: forward speed and turn correction.
         drive.drive_tank(adjusted_speed, correction)
 
-        # Check distance completion from encoder feedback.
+        # Check distance completion from Venice motor encoder feedback.
         driven = abs_value(_motor_distance_inches(start_ticks, drive.MotorPosition()))
         if driven >= (abs_value(distance_inches) - buffer_inches):
             break
