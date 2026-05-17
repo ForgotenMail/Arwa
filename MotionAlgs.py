@@ -1,6 +1,7 @@
 # Motion algorithm implementations.
 # This file contains algorithm application logic only.
 
+from venice import RotationUnit
 from drivetrains import Gyro, GearRatio, WheelDiamater, drive
 from Classes import (
     clamp,
@@ -9,15 +10,8 @@ from Classes import (
     atan2_deg,
     get_xy,
     abs_value,
-    sin_deg,
-    cos_deg,
     closest_point,
-    _motor_distance_inches,
-    _get_heading_degrees,
-    _calculate_lookahead_point,
-    _calculate_arc_curvature,
     Point
-
 )
 
 # Linear heading-hold PID gains.
@@ -41,14 +35,15 @@ def _motor_distance_inches(start_ticks, current_ticks):
     return wheel_revolutions * (WheelDiamater * 3.1415926535)
 
 
-# Read current heading from the configured gyro.
+# Read current heading from the configured Venice inertial sensor.
 def _get_heading_degrees():
-    # Some API variants accept no argument.
-    try:
-        return Gyro.get_heading()
-    # Some API variants require a unit argument.
-    except TypeError:
-        return Gyro.get_heading("degrees")
+    return Gyro.get_heading(RotationUnit.DEGREES)
+
+
+def sign(value):
+    if value < 0:
+        return -1
+    return 1
 
 
 # Compute the lookahead point by walking forward from the closest point.
@@ -119,9 +114,6 @@ def LinearPID(distance_inches, speed, target_heading_deg, buffer_inches=0.5, max
     integral = 0
     # Loop counter used as a safety stop.
     steps = 0
-
-    from drivetrains import drive, Gyro, GearRatio, WheelDiamater
-    from Classes import point
 
     # Run until distance goal (+ buffer) or safety limit is reached.
     while steps < max_steps:
